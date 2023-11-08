@@ -1,0 +1,342 @@
+rm(list=ls())
+options(stringsAsFactors = F)
+setwd("E:\\吉娃娃\\甲基化2020\\pro\\data")
+library(GEOquery)
+library(devtools)
+library(idmap1)
+library(sva)
+library(dplyr)
+#GSE15258
+f<-'GSE15258.Rdata'
+if(!file.exists(f)){
+  gset2<-getGEO('GSE15258',destdir='.',
+                AnnotGPL=F,
+                getGPL=F)
+  save(gset2,file=f)
+}
+exp <- exprs(gset2[[1]])
+exp_geo <- as.data.frame(exp)
+pd2 <- pData(gset2[[1]])
+meta1<- data.frame(sample=rownames(pd2),group=rep("RA",86))
+ids=getIDs('GPL570')
+ids<- ids[ids$probe_id %in% rownames(exp_geo),]
+exp_geo<- exp_geo[ids$probe_id,]
+exp_geo$symbol<- ids$symbol
+exp1<- aggregate(exp_geo[,1:86],by=list(exp_geo$symbol),FUN="mean")
+range(exp1[,2:87])
+
+#GSE25101
+f<-'GSE25101.Rdata'
+if(!file.exists(f)){
+  gset2<-getGEO('GSE25101',destdir='.',
+                AnnotGPL=F,
+                getGPL=F)
+  save(gset2,file=f)
+}
+exp <- exprs(gset2[[1]])
+exp_geo <- as.data.frame(exp)
+pd2 <- pData(gset2[[1]])
+pd2$characteristics_ch1.2
+meta2<- data.frame(sample=rownames(pd2),group=c(rep("AS",16),rep("HC",16)))
+ids=getIDs('GPL6947')
+ids<- ids[ids$probe_id %in% rownames(exp_geo),]
+exp_geo<- exp_geo[ids$probe_id,]
+exp_geo$symbol<- ids$symbol
+exp2<- aggregate(exp_geo[,1:32],by=list(exp_geo$symbol),FUN="mean")
+range(exp2[,2:32])
+#GSE73754
+f<-'GSE73754.Rdata'
+if(!file.exists(f)){
+  gset2<-getGEO('GSE73754',destdir='.',
+                AnnotGPL=F,
+                getGPL=F)
+  save(gset2,file=f)
+}
+exp <- exprs(gset2[[1]])
+exp_geo <- as.data.frame(exp)
+pd2 <- pData(gset2[[1]])
+pd2$characteristics_ch1.2
+meta3<- data.frame(sample=rownames(pd2),group=c(rep("AS",36),rep("HC",36)))
+ids=getIDs('GPL10558')
+ids<- ids[ids$probe_id %in% rownames(exp_geo),]
+exp_geo<- exp_geo[ids$probe_id,]
+exp_geo$symbol<- ids$symbol
+exp3<- aggregate(exp_geo[,1:72],by=list(exp_geo$symbol),FUN="mean")
+range(exp3[,2:72])
+###合并去批次
+meta<- rbind(meta1,meta2)
+meta<- rbind(meta,meta3)
+exp<-merge(exp1,exp2,by="Group.1")
+exp<- merge(exp,exp3,by="Group.1")
+rownames(exp)<- exp[,1]
+exp<- exp[,-1]
+exp=as.matrix(exp)
+dimnames=list(rownames(exp),colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)),nrow = nrow(exp),dimnames = dimnames)
+batchType=c(rep(1,86),rep(2,32),rep(3,72))
+outTab <- data.frame(ComBat(data,batchType,par.prior = TRUE))
+outTab<- cbind(ID=rownames(outTab),outTab)
+write.table(outTab,file="整合表达.txt",sep="\t",row.names=F,quote=F)
+write.table(meta,"样本分组.txt",row.names = F,sep="\t")
+####热图三组比较
+library(pheatmap)
+gene<- read.csv("genelist.csv",head=F)
+expgene<- outTab[outTab$ID %in% gene$V1,]
+rownames(expgene)<- expgene[,1]
+expgene<- expgene[,-1]
+expt<- as.data.frame(t(expgene))
+ra<- meta[meta$group=="RA",]
+as<- meta[meta$group=="AS",]
+hc<- meta[meta$group=="HC",]
+g <- factor(rep(1:3, c(86, 52, 52)),labels = c("RA","AS","HC"))
+for (i in colnames(expt)){
+  s1=expt[rownames(expt) %in% ra$sample,i]  
+  s2=expt[rownames(expt) %in% as$sample,i]
+  s3=expt[rownames(expt) %in% hc$sample,i]
+  kr<- kruskal.test(c(s1,s2,s3),g)
+  p=round(kr$p.value,3)
+  if (p <0.05){
+    colnames(expt)<- gsub(i,paste0(i,"*"),colnames(expt))
+  }
+}
+colnames(expt)
+meta<- rbind(ra,as)
+meta<- rbind(meta,hc)
+annotation_col = data.frame(
+  Group=factor(meta$group)
+)
+rownames(annotation_col) = meta$sample
+ann_colors = list(
+ Group = c(RA="#FFD700",AS="#9400D3",HC="#7B68EE")
+)
+kk<- t(scale(expt))
+kk[kk>4]<- 4
+kk[kk< -4]<- -4
+kk<- kk[,rownames(annotation_col)]
+#w7.33,h5.86
+pheatmap(kk,show_colnames = F,cluster_cols = T,
+         annotation_col = annotation_col,annotation_colors = ann_colors,
+         color = colorRampPalette(c("blue","white", "red"))(30))
+###RA与HC
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+m1<- meta[meta$group %in% c("RA","HC"),]
+expt$sample<- rownames(expt)
+expt1<- merge(m1,expt,by="sample")
+dat<- melt(expt1,id.vars = c("sample","group"),variable.name = "gene",value.name = "expression")
+dat$gene<- gsub("[*]","",dat$gene)
+dat$group<- factor(dat$group,levels=c("RA","HC"))
+ggplot(dat,aes(gene,expression,color=group))+
+  geom_boxplot()+
+  xlab("")+ylab("Log2(expression)")+labs(color="Group")+
+  theme_bw()+
+  scale_color_manual(values=c("red","blue"))+
+  theme(axis.text.x = element_text(angle=90,hjust=1,color="black"),
+        axis.text.y = element_text(color="black"))+
+  stat_compare_means(aes(group=group),label="p.signif")
+ggsave("RA箱线图.pdf",width=9.75,height=5.5)
+
+###AS与HC
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+m1<- meta[meta$group %in% c("AS","HC"),]
+expt$sample<- rownames(expt)
+expt1<- merge(m1,expt,by="sample")
+dat<- melt(expt1,id.vars = c("sample","group"),variable.name = "gene",value.name = "expression")
+dat$gene<- gsub("[*]","",dat$gene)
+dat$group<- factor(dat$group,levels=c("AS","HC"))
+ggplot(dat,aes(gene,expression,color=group))+
+  geom_boxplot()+
+  xlab("")+ylab("Log2(expression)")+labs(color="Group")+
+  theme_bw()+
+  scale_color_manual(values=c("red","blue"))+
+  theme(axis.text.x = element_text(angle=90,hjust=1,color="black"),
+        axis.text.y = element_text(color="black"))+
+  stat_compare_means(aes(group=group),label="p.signif")
+ggsave("AS箱线图.pdf",width=9.75,height=5.5)
+#RA组基因相关性
+library(corrplot)
+m1<- meta[meta$group %in% c("RA"),]
+expt<- as.data.frame(t(expgene))
+tt<- expt[rownames(expt) %in% m1$sample,]
+m<- cor(tt)
+col2 = colorRampPalette(c('#67001F', '#B2182B', '#D6604D', '#F4A582',
+                          '#FDDBC7', '#FFFFFF', '#D1E5F0', '#92C5DE',
+                          '#4393C3', '#2166AC', '#053061'))
+#w7,h7
+corrplot(m, method = "circle",col=rev(col2(200)),
+         tl.cex = 0.8,tl.col="black",order="FPC")
+#AS
+m1<- meta[meta$group %in% c("AS"),]
+expt<- as.data.frame(t(expgene))
+tt<- expt[rownames(expt) %in% m1$sample,]
+m<- cor(tt)
+col2 = colorRampPalette(c('#67001F', '#B2182B', '#D6604D', '#F4A582',
+                          '#FDDBC7', '#FFFFFF', '#D1E5F0', '#92C5DE',
+                          '#4393C3', '#2166AC', '#053061'))
+#w7,h7
+corrplot(m, method = "circle",col=rev(col2(200)),
+         tl.cex = 0.8,tl.col="black",order="FPC")
+
+#HC
+m1<- meta[meta$group %in% c("HC"),]
+expt<- as.data.frame(t(expgene))
+tt<- expt[rownames(expt) %in% m1$sample,]
+m<- cor(tt)
+col2 = colorRampPalette(c('#67001F', '#B2182B', '#D6604D', '#F4A582',
+                          '#FDDBC7', '#FFFFFF', '#D1E5F0', '#92C5DE',
+                          '#4393C3', '#2166AC', '#053061'))
+#w7,h7
+corrplot(m, method = "circle",col=rev(col2(200)),
+         tl.cex = 0.8,tl.col="black",order="FPC")
+
+###RA无监督聚类
+library(ConsensusClusterPlus)
+m1<- meta[meta$group %in% c("RA"),]
+dataset <- expgene[,colnames(expgene) %in% m1$sample]
+dataset[dataset==0] <- NA
+dataset = sweep(dataset,1, apply(dataset,1,median,na.rm=T))
+dataset[is.na(dataset)] <- min(dataset,na.rm = T)*0.01
+c <- as.matrix(dataset)
+dir.create("RA无监督聚类")
+title <-"RA无监督聚类"
+results <- ConsensusClusterPlus(c, maxK =5,
+                                reps =1000, pItem = 0.8,
+                                pFeature = 1, seed=73,
+                                clusterAlg = "km", 
+                                distance = "euclidean",
+                                title = title,
+                                plot = "png")
+###AS无监督聚类
+library(ConsensusClusterPlus)
+m1<- meta[meta$group %in% c("AS"),]
+dataset <- expgene[,colnames(expgene) %in% m1$sample]
+dataset[dataset==0] <- NA
+dataset = sweep(dataset,1, apply(dataset,1,median,na.rm=T))
+dataset[is.na(dataset)] <- min(dataset,na.rm = T)*0.01
+c <- as.matrix(dataset)
+dir.create("AS无监督聚类")
+title <-"AS无监督聚类"
+results <- ConsensusClusterPlus(c, maxK =5,
+                                reps =1000, pItem = 0.8,
+                                pFeature = 1, seed=73,
+                                clusterAlg = "km", 
+                                distance = "euclidean",
+                                title = title,
+                                plot = "png")
+###五个基因分组RA
+library(pheatmap)
+outTab<- read.table("整合表达.txt",sep="\t",head=T,row.names=1)
+meta<- read.table("样本分组.txt",head=T)
+gene<- c("TNF", "IRF2","CASP8", "PYCARD", "NLRC4")
+expgene<- outTab[rownames(outTab) %in% gene,]
+m1<- meta[meta$group %in% c("RA"),]
+expgene2<- expgene[,colnames(expgene) %in% m1$sample]
+expt<- as.data.frame(t(expgene2))
+score<- rowMeans(expt)
+group<- ifelse(score>median(score),"High","Low")
+dg<- data.frame(sample=rownames(expt),group=group)
+dg<- dg[order(dg$group),]
+write.table(dg,"RA两个分组.txt",row.names=F,sep="\t",quote=F)
+annotation_col = data.frame(
+  Group=factor(dg$group)
+)
+rownames(annotation_col) = dg$sample
+ann_colors = list(
+  Group = c(High="red",Low="blue")
+)
+kk<- t(scale(expt))
+kk[kk>4]<- 4
+kk[kk< -4]<- -4
+kk<- kk[,rownames(annotation_col)]
+#w6.48,h3.22
+pheatmap(kk,show_colnames = F,cluster_cols = F,
+         annotation_col = annotation_col,annotation_colors = ann_colors,
+         color = colorRampPalette(c("blue","white", "red"))(30))
+##AS
+m1<- meta[meta$group %in% c("AS"),]
+expgene2<- expgene[,colnames(expgene) %in% m1$sample]
+expt<- as.data.frame(t(expgene2))
+score<- rowMeans(expt)
+group<- ifelse(score>median(score),"High","Low")
+dg<- data.frame(sample=rownames(expt),group=group)
+dg<- dg[order(dg$group),]
+write.table(dg,"AS两个分组.txt",row.names=F,sep="\t",quote=F)
+annotation_col = data.frame(
+  Group=factor(dg$group)
+)
+rownames(annotation_col) = dg$sample
+ann_colors = list(
+  Group = c(High="red",Low="blue")
+)
+kk<- t(scale(expt))
+kk[kk>4]<- 4
+kk[kk< -4]<- -4
+kk<- kk[,rownames(annotation_col)]
+#w6.48,h3.22
+pheatmap(kk,show_colnames = F,cluster_cols = F,
+         annotation_col = annotation_col,annotation_colors = ann_colors,
+         color = colorRampPalette(c("blue","white", "red"))(30))
+###RA免疫浸润比较
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+library('e1071')
+library('parallel')
+library('preprocessCore')
+m1<- meta[meta$group %in% c("RA"),]
+expgene2<- outTab[,colnames(outTab) %in% m1$sample]
+exp2<- expgene2[rowSums(expgene2)>0,]#过滤
+write.table(exp2,"RAexp.txt",sep="\t")
+source("1.R") 
+sig_matrix = 'LM22.txt'
+mixture_file = 'RAexp.txt'
+TME.results = CIBERSORT(sig_matrix,mixture_file, perm = 100, QN = T)
+re<- read.table("RA_CIBERSORT-Results.txt",head=T,sep="\t",row.names=1)
+re<- re[,1:22]
+dg<- read.table("RA两个分组.txt",sep="\t",head=T)
+re<- re[dg$sample,]
+colnames(re)<- gsub("[.]"," ",colnames(re))
+re$Group<- dg$group
+re2<- melt(re,id.vars = "Group",variable.name = "cell",value.name = "percent")
+ggplot(re2,aes(cell,percent,color=Group))+
+  geom_boxplot()+
+  xlab("")+ylab("Fraction score")+labs(color="Group")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle=60,hjust=1,color="black"),
+        axis.text.y = element_text(color="black"))+
+  stat_compare_means(aes(group=Group),label="p.signif")
+ggsave("RA免疫浸润.pdf",width=6.5,height=5)
+
+###AS免疫浸润比较
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+library('e1071')
+library('parallel')
+library('preprocessCore')
+m1<- meta[meta$group %in% c("AS"),]
+expgene2<- outTab[,colnames(outTab) %in% m1$sample]
+exp2<- expgene2[rowSums(expgene2)>0,]#过滤
+write.table(exp2,"ASexp.txt",sep="\t")
+source("1.R") 
+sig_matrix = 'LM22.txt'
+mixture_file = 'ASexp.txt'
+TME.results = CIBERSORT(sig_matrix,mixture_file, perm = 100, QN = T)
+re<- read.table("AS_CIBERSORT-Results.txt",head=T,sep="\t",row.names=1)
+re<- re[,1:22]
+dg<- read.table("AS两个分组.txt",sep="\t",head=T)
+re<- re[dg$sample,]
+colnames(re)<- gsub("[.]"," ",colnames(re))
+re$Group<- dg$group
+re2<- melt(re,id.vars = "Group",variable.name = "cell",value.name = "percent")
+ggplot(re2,aes(cell,percent,color=Group))+
+  geom_boxplot()+
+  xlab("")+ylab("Fraction score")+labs(color="Group")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle=60,hjust=1,color="black"),
+        axis.text.y = element_text(color="black"))+
+  stat_compare_means(aes(group=Group),label="p.signif")
+ggsave("AS免疫浸润.pdf",width=6.5,height=5)
