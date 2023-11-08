@@ -1,0 +1,89 @@
+setwd("object/合并去批次")
+rm(list = ls())
+options(stringsAsFactors = F)
+library(limma)
+library(ggplot2)
+library(sva)
+library(dplyr)
+library(idmap1)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+#GSE15258
+exp2<- read.table("GSE15258_series_matrix.txt",head=T,sep="\t",row.names=1)
+ids<- idmap1::getIDs("GPL570")
+exp2<- exp2[ids$probe_id,]
+exp2$symbol<- ids$symbol
+exp2<- aggregate(exp2[,1:86],by=list(exp2$symbol),FUN="mean")
+rownames(exp2)<- exp2[,1]
+exp2<- exp2[,-1]
+range(exp2)
+exp2<- normalizeBetweenArrays(exp2)
+exp2<- as.data.frame(exp2)
+#GSE25101
+ids<- idmap1::getIDs("GPL6947")
+exp1<- read.table("GSE25101_series_matrix.txt",head=T,sep="\t",row.names=1)
+ids<- ids[ids$probe_id %in% rownames(exp1),]
+exp1<- exp1[ids$probe_id,]
+exp1$symbol<- ids$symbol
+exp1<- aggregate(exp1[,1:32],by=list(exp1$symbol),FUN="mean")
+rownames(exp1)<- exp1[,1]
+exp1<- exp1[,-1]
+range(exp1)
+exp1<- normalizeBetweenArrays(exp1)
+exp1<- as.data.frame(exp1)
+#GSE73754
+ids<- idmap1::getIDs("GPL10558")
+exp3<- read.table("GSE73754_series_matrix.txt",head=T,sep="\t",row.names=1)
+ids<- ids[ids$probe_id %in% rownames(exp3),]
+exp3<- exp3[ids$probe_id,]
+exp3$symbol<- ids$symbol
+exp3<- aggregate(exp3[,1:72],by=list(exp3$symbol),FUN="mean")
+rownames(exp3)<- exp3[,1]
+exp3<- exp3[,-1]
+range(exp3)
+exp3<- normalizeBetweenArrays(exp3)
+exp3<- as.data.frame(exp3)
+#自测数据
+exp4<- read.table("gene_count_matrix(1).txt",head=T,sep="\t",row.names=1)
+meta4<- data.frame(sample=colnames(exp4),type=substr(colnames(exp4),1,2))
+exp4<- log2(exp4+1)
+df <- bitr(rownames(exp4),fromType = "ENSEMBL",toType = "SYMBOL",OrgDb = org.Hs.eg.db )
+exp4<- exp4[df$ENSEMBL,]
+exp4$symbol<- df$SYMBOL
+exp4<- aggregate(exp4[,1:36],by=list(exp4$symbol),FUN="mean")
+rownames(exp4)<- exp4[,1]
+exp4<- exp4[,-1]
+range(exp4)
+exp4<- normalizeBetweenArrays(exp4)
+exp4<- as.data.frame(exp4)
+#去批次
+com<- intersect(intersect(intersect(rownames(exp1),rownames(exp2)),rownames(exp3)),rownames(exp4))
+exp1<- exp1[com,]
+exp2<- exp2[com,]
+exp3<- exp3[com,]
+exp4<- exp4[com,]
+exp<- cbind(exp1,exp2)
+exp<- cbind(exp,exp3)
+exp<- cbind(exp,exp4)
+dimnames=list(rownames(exp),colnames(exp))
+data=matrix(as.numeric(as.matrix(exp)),nrow = nrow(exp),dimnames = dimnames)
+batchType=c(rep(1,32),rep(2,86),rep(3,72),rep(4,36))
+outTab <- data.frame(ComBat(data,batchType,par.prior = TRUE))
+meta1<- read.csv("GSE15258_meta.csv",head=T)
+meta1$dataset<-"GSE15258"
+meta2<- read.csv("GSE25101_meta.csv",head=T)
+meta2$dataset<-"GSE25101"
+meta3<- read.csv("GSE73754_meta.csv",head=T)
+meta3$dataset<-"GSE73754"
+meta4$dataset<-"mydata"
+meta<- rbind(meta1,meta2)
+meta<- rbind(meta,meta3)
+meta<- rbind(meta,meta4)
+meta<- meta[order(meta$type),]
+table(meta$type)
+write.csv(meta,"分组.csv",row.names=F)
+outTab<- outTab[,meta$sample]
+outTab<- cbind(symbol=rownames(outTab),outTab)
+write.table(outTab,"合并表达.txt",sep="\t",row.names=F,quote=F)
+exp4<- cbind(symbol=rownames(exp4),exp4)
+write.table(exp4,"自测数据表达.txt",sep="\t",row.names=F,quote=F)
