@@ -1,0 +1,29 @@
+rm(list = ls())
+options(stringsAsFactors = F)
+setwd("GSVA")#修改你的文件所在的路径
+library(GSEABase)
+library(GSVAdata)
+library(GSVA)
+
+geneSets <- getGmt('通路基因.gmt')
+exp1<- read.table("矩阵1.txt",head=T,sep="\t",row.names=1)
+range(exp1)#如果范围最大值超过50记得log2处理
+Result=gsva(as.matrix(exp1), geneSets, min.sz=1, max.sz=50000, verbose=T)
+re<- as.data.frame(Result)
+re<- cbind(pathway=rownames(re),re)
+write.table(re,"矩阵1通路GSVA.txt",sep="\t",quote=F,row.names=F)
+
+
+exp1<- read.table("矩阵2.txt",head=T,sep="\t",row.names=1)
+range(exp1)#如果范围最大值超过50记得log2处理
+Result=gsva(as.matrix(exp1), geneSets, min.sz=1, max.sz=50000, verbose=T)
+re<- as.data.frame(Result)
+re<- cbind(pathway=rownames(re),re)
+write.table(re,"矩阵2通路GSVA.txt",sep="\t",quote=F,row.names=F)
+
+exp1<- read.table("矩阵3.txt",head=T,sep="\t",row.names=1)
+range(exp1)#如果范围最大值超过50记得log2处理
+Result=gsva(as.matrix(exp1), geneSets, min.sz=1, max.sz=50000, verbose=T)
+re<- as.data.frame(Result)
+re<- cbind(pathway=rownames(re),re)
+write.table(re,"矩阵3通路GSVA.txt",sep="\t",quote=F,row.names=F)
