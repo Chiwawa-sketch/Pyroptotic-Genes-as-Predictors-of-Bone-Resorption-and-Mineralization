@@ -1,0 +1,54 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from xgboost import XGBClassifier
+from sklearn.linear_model import LogisticRegression
+from lightgbm import LGBMClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+
+# Assuming you have pandas dataframe `df` containing your GSVA scores and gene expressions
+
+# Divide GSVA scores into two groups based on >0 and <0
+df['GSVA_scores'] = ['Group1' if score > 0 else 'Group2' for score in df['GSVA_scores']]
+
+# Split the data
+X_train_val, X_test, y_train_val, y_test = train_test_split(
+    df[['TNF', 'IRF2', 'CASP8', 'PYCARD', 'NLRC4']],
+    df['GSVA_scores'],
+    test_size=0.15,
+    random_state=42
+)
+
+# Further split the training data
+X_train, X_val, y_train, y_val = train_test_split(
+    X_train_val,
+    y_train_val,
+    test_size=0.176,  # this results in approximately an 85%/15% overall split
+    random_state=42
+)
+
+# Train first layer models
+models = [
+    XGBClassifier(random_state=42),
+    LogisticRegression(random_state=42),
+    LGBMClassifier(random_state=42)
+]
+
+for model in models:
+    model.fit(X_train, y_train)
+
+# Use trained models to predict for validation set
+val_predictions = [model.predict(X_val) for model in models]
+
+# The predicted results then serve as the training set for the second layer model
+second_layer_train = pd.DataFrame(val_predictions).transpose()
+second_layer_model = RandomForestClassifier(random_state=42)
+second_layer_model.fit(second_layer_train, y_val)
+
+# make final predictions for the test set
+test_predictions = [model.predict(X_test) for model in models]
+second_layer_test = pd.DataFrame(test_predictions).transpose()
+final_predictions = second_layer_model.predict(second_layer_test)
+
+# print the accuracy of the final model
+print('Accuracy:', accuracy_score(y_test, final_predictions))
